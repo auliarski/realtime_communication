@@ -5,6 +5,7 @@ import 'praktikum/praktikum1.dart';
 import 'praktikum/praktikum2.dart';
 import 'praktikum/praktikum3.dart';
 import 'praktikum/praktikum4.dart';
+import 'praktikum/praktikum5.dart';
 
 void main() {
   runApp(const MyApp());
@@ -56,6 +57,11 @@ class HomePage extends StatelessWidget {
             context,
             'Praktikum 4 - WebSocket',
             const Praktikum4(),
+          ),
+          praktikButton(
+            context,
+            'Praktikum 5 - MQTT',
+            const Praktikum5(),
           ),
         ],
       ),
