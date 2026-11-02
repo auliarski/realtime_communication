@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 
 import 'praktikum/praktikum1.dart';
 import 'praktikum/praktikum2.dart';
-// import 'praktikum/praktikum3.dart';
-// import 'praktikum/praktikum4.dart';
+import 'praktikum/praktikum3.dart';
+import 'praktikum/praktikum4.dart';
 
 void main() {
   runApp(const MyApp());
@@ -47,16 +47,16 @@ class HomePage extends StatelessWidget {
             'Praktikum 2 - Polling',
             const Praktikum2(),
           ),
-          // praktikButton(
-          //   context,
-          //   'Praktikum 3 - SSE',
-          //   const Praktikum3(),
-          // ),
-          // praktikButton(
-          //   context,
-          //   'Praktikum 4 - WebSocket',
-          //   const Praktikum4(),
-          // ),
+          praktikButton(
+            context,
+            'Praktikum 3 - SSE',
+            const Praktikum3(),
+          ),
+          praktikButton(
+            context,
+            'Praktikum 4 - WebSocket',
+            const Praktikum4(),
+          ),
         ],
       ),
     );
