@@ -18,9 +18,37 @@ const wss = new WebSocketServer({ server });
 // Menyimpan data dan koneksi client.
 let counter = 0;
 let history = [];
+let submittedData = [];
+let nextSubmittedDataId = 1;
 
 const clients = new Set();
 const sseClients = new Set();
+const signalingRooms = new Map();
+
+function sendSignalingError(socket, message) {
+  if (socket.readyState === 1) {
+    socket.send(JSON.stringify({ type: "error", message }));
+  }
+}
+
+function leaveSignalingRoom(socket) {
+  const roomId = socket.signalingRoom;
+  if (!roomId) return;
+
+  const room = signalingRooms.get(roomId);
+  room?.delete(socket.signalingRole);
+  socket.signalingRoom = undefined;
+  socket.signalingRole = undefined;
+
+  if (room) {
+    for (const peer of room.values()) {
+      if (peer.readyState === 1) {
+        peer.send(JSON.stringify({ type: "peer-left" }));
+      }
+    }
+    if (room.size === 0) signalingRooms.delete(roomId);
+  }
+}
 
 // =====================================
 // DATA GENERATOR
@@ -75,13 +103,43 @@ setInterval(publishData, 2000);
 
 // GET: Mengambil data dari server.
 app.get("/api/data", (req, res) => {
-  res.json(
-    history.at(-1) ?? {
+  const latest = history.at(-1) ?? {
       counter: 0,
       value: 0,
       timestamp: new Date().toISOString(),
-    }
-  );
+  };
+
+  res.json({
+    ...latest,
+    data: submittedData,
+  });
+});
+
+app.post("/api/data", (req, res) => {
+  const name = String(req.body?.name ?? "").trim();
+
+  if (!name) {
+    return res.status(400).json({
+      received: false,
+      error: "Nama tidak boleh kosong",
+    });
+  }
+
+  const item = {
+    id: nextSubmittedDataId++,
+    name,
+    timestamp: new Date().toISOString(),
+  };
+
+  submittedData.unshift(item);
+  if (submittedData.length > 100) {
+    submittedData.pop();
+  }
+
+  res.status(201).json({
+    received: true,
+    data: item,
+  });
 });
 
 // POST: Menerima pesan dari client.
@@ -137,6 +195,66 @@ wss.on("connection", (socket) => {
     try {
       const received = JSON.parse(message.toString());
 
+      if (received.type === "join") {
+        const roomId = typeof received.room === "string"
+          ? received.room.trim()
+          : "";
+        const role = received.role;
+
+        if (!roomId || roomId.length > 100) {
+          sendSignalingError(socket, "Room ID harus berisi 1-100 karakter");
+          return;
+        }
+        if (role !== "caller" && role !== "callee") {
+          sendSignalingError(socket, "Role harus caller atau callee");
+          return;
+        }
+        if (socket.signalingRoom) {
+          sendSignalingError(socket, "Koneksi ini sudah bergabung ke room");
+          return;
+        }
+
+        let room = signalingRooms.get(roomId);
+        if (!room) {
+          room = new Map();
+          signalingRooms.set(roomId, room);
+        }
+        if (room.size >= 2 || room.has(role)) {
+          sendSignalingError(socket, "Room penuh atau role tersebut sudah dipakai");
+          return;
+        }
+
+        const peerPresent = room.size > 0;
+        room.set(role, socket);
+        socket.signalingRoom = roomId;
+        socket.signalingRole = role;
+
+        if (socket.readyState === 1) {
+          socket.send(JSON.stringify({ type: "joined", peerPresent }));
+        }
+        for (const peer of room.values()) {
+          if (peer !== socket && peer.readyState === 1) {
+            peer.send(JSON.stringify({ type: "peer-joined", role }));
+          }
+        }
+        console.log(`Client signaling bergabung: room=${roomId}, role=${role}`);
+        return;
+      }
+
+      if (["offer", "answer", "candidate"].includes(received.type)) {
+        const room = signalingRooms.get(socket.signalingRoom);
+        if (!room) {
+          sendSignalingError(socket, "Bergabung ke room sebelum mengirim sinyal");
+          return;
+        }
+        for (const peer of room.values()) {
+          if (peer !== socket && peer.readyState === 1) {
+            peer.send(JSON.stringify(received));
+          }
+        }
+        return;
+      }
+
       const reply = {
         type: "echo",
         message: received.message ?? message.toString(),
@@ -158,6 +276,7 @@ wss.on("connection", (socket) => {
   // Menghapus client ketika koneksi terputus.
   socket.on("close", () => {
     clients.delete(socket);
+    leaveSignalingRoom(socket);
     console.log("Client WebSocket terputus");
   });
 
@@ -165,7 +284,6 @@ wss.on("connection", (socket) => {
     console.log("WebSocket error:", error.message);
   });
 });
-
 
 // =====================================
 // MENJALANKAN SERVER

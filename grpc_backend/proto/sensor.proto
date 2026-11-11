@@ -1,0 +1,27 @@
+
+syntax = "proto3";
+
+package monitoring;
+
+option go_package = "example.com/realtime-grpc/gen/monitoring;monitoring";
+
+// Layanan komunikasi sensor
+service SensorService {
+  // Unary RPC: satu request, satu response
+  rpc GetLatest (SensorRequest) returns (SensorReading);
+
+  // Server Streaming: satu request, banyak response
+  rpc WatchSensor (SensorRequest) returns (stream SensorReading);
+}
+
+// Request dari client
+message SensorRequest {
+  string device_id = 1;
+}
+
+// Data pembacaan sensor
+message SensorReading {
+  string device_id = 1;
+  double value = 2;
+  int64 timestamp = 3;
+}

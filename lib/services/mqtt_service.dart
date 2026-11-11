@@ -1,130 +1,117 @@
-
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:mqtt_client/mqtt_client.dart';
-import 'package:mqtt_client/mqtt_browser_client.dart';
+
+import 'mqtt_client_factory.dart';
 
 class MqttService {
-  late MqttBrowserClient client;
-
+  static const String broker = 'broker.hivemq.com';
+  static const int port = 1883;
   static const String topic = 'kampus/demo/sensor01';
 
-  bool get isConnected =>
-      client.connectionStatus?.state ==
-      MqttConnectionState.connected;
+  MqttClient? _client;
+  StreamSubscription<List<MqttReceivedMessage<MqttMessage>>>? _updates;
+  bool _isConnected = false;
+
+  bool get isConnected => _isConnected;
 
   Future<void> connect({
     required Function(Map<String, dynamic>) onData,
     required Function(String) onStatus,
   }) async {
-    final clientId =
-        'flutter_${DateTime.now().millisecondsSinceEpoch}';
+    if (_isConnected) return;
 
-    // Host dan path WebSocket HiveMQ
-    client = MqttBrowserClient(
-      'ws://broker.hivemq.com/mqtt',
-      clientId,
+    final clientIdentifier =
+        'realtime_comm_${DateTime.now().millisecondsSinceEpoch}';
+    final client = createMqttClient(
+      broker,
+      clientIdentifier,
+      port: port,
     );
+    client
+      ..logging(on: false)
+      ..keepAlivePeriod = 20
+      ..connectTimeoutPeriod = 10000
+      ..connectionMessage = MqttConnectMessage()
+          .withClientIdentifier(clientIdentifier)
+          .startClean()
+      ..onDisconnected = () {
+        _isConnected = false;
+        if (identical(_client, client)) {
+          onStatus('MQTT terputus');
+        }
+      };
 
-    // Port WebSocket HiveMQ
-    client.port = 8000;
-
-    client.logging(on: true);
-    client.keepAlivePeriod = 30;
-    client.connectTimeoutPeriod = 10000;
-
-    // Konfigurasi protokol MQTT
-    client.setProtocolV311();
-
-    // Subprotocol WebSocket
-    client.websocketProtocols =
-        MqttClientConstants.protocolsSingleDefault;
-
-    client.onConnected = () {
-      onStatus('Terhubung ke broker MQTT');
-    };
-
-    client.onDisconnected = () {
-      onStatus('Terputus dari broker MQTT');
-    };
-
-    client.onSubscribed = (topic) {
-      onStatus('Berhasil subscribe: $topic');
-    };
-
-    // Clean session
-    client.connectionMessage = MqttConnectMessage()
-        .withClientIdentifier(clientId)
-        .startClean()
-        .withWillQos(MqttQos.atMostOnce);
+    onStatus('Menghubungkan ke broker MQTT...');
 
     try {
-      onStatus('Menghubungkan ke broker...');
+      final connectionStatus = await client.connect().timeout(
+        const Duration(seconds: 15),
+      );
 
-      await client.connect();
-
-      if (client.connectionStatus?.state !=
-          MqttConnectionState.connected) {
-        throw Exception(
-          'Broker menolak koneksi: ${client.connectionStatus}',
+      if (connectionStatus?.state != MqttConnectionState.connected) {
+        throw StateError(
+          'Broker menolak koneksi: ${connectionStatus?.returnCode}',
         );
       }
 
-      // Subscribe ke topik sensor
-      client.subscribe(topic, MqttQos.atMostOnce);
+      _client = client;
+      _isConnected = true;
+      client.subscribe(topic, MqttQos.atLeastOnce);
 
-      client.updates?.listen((events) {
-        for (final event in events) {
-          final publish =
-              event.payload as MqttPublishMessage;
-
-          final message =
-              MqttPublishPayload.bytesToStringAsString(
-            publish.payload.message,
+      _updates = client.updates?.listen((messages) {
+        for (final message in messages) {
+          final publishMessage = message.payload as MqttPublishMessage;
+          final payload = MqttPublishPayload.bytesToStringAsString(
+            publishMessage.payload.message,
           );
 
           try {
-            final data = jsonDecode(message);
-
-            if (data is Map<String, dynamic>) {
-              onData(data);
+            final decoded = jsonDecode(payload);
+            if (decoded is Map<String, dynamic>) {
+              onData(decoded);
             }
-          } catch (e) {
-            onStatus('Gagal membaca pesan: $e');
+          } on FormatException {
+            onStatus('Data MQTT tidak berformat JSON yang valid');
           }
         }
       });
 
-      onStatus('MQTT berhasil terhubung');
-    } catch (e) {
+      onStatus('Terhubung ke broker MQTT');
+    } catch (error) {
+      _isConnected = false;
+      if (identical(_client, client)) _client = null;
       client.disconnect();
-      onStatus('Koneksi gagal: $e');
+      onStatus('Koneksi MQTT gagal: $error');
       rethrow;
     }
   }
 
   void publish(double temperature) {
-    if (!isConnected) {
-      throw Exception('MQTT belum terhubung');
+    final client = _client;
+    if (!_isConnected || client == null) {
+      throw StateError('Belum terhubung ke broker MQTT');
     }
 
-    final builder = MqttClientPayloadBuilder();
+    final builder = MqttClientPayloadBuilder()
+      ..addString(
+        jsonEncode({
+          'temperature': temperature,
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      );
 
-    builder.addString(jsonEncode({
-      'temperature': temperature,
-      'timestamp': DateTime.now().toIso8601String(),
-    }));
-
-    client.publishMessage(
-      topic,
-      MqttQos.atMostOnce,
-      builder.payload!,
-    );
+    client.publishMessage(topic, MqttQos.atLeastOnce, builder.payload!);
   }
 
   void disconnect() {
-    if (isConnected) {
-      client.disconnect();
-    }
+    _isConnected = false;
+    final client = _client;
+    _client = null;
+    final updates = _updates;
+    _updates = null;
+    if (updates != null) unawaited(updates.cancel());
+    client?.disconnect();
   }
 }

@@ -11,20 +11,39 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:realtime_comm/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('Praktikum 7 button opens the gRPC sensor screen', (
+    tester,
+  ) async {
     await tester.pumpWidget(const MyApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    final praktikumButton = find.text('Praktikum 7 - gRPC');
+    await tester.scrollUntilVisible(
+      praktikumButton,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(praktikumButton);
+    await tester.pumpAndSettle();
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    expect(find.text('Monitoring Sensor'), findsOneWidget);
+    expect(find.text('Ambil Data Terbaru'), findsOneWidget);
+    expect(find.text('Mulai Streaming'), findsOneWidget);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  testWidgets('Praktikum 8 button opens the Firebase screen', (tester) async {
+    await tester.pumpWidget(const MyApp());
+
+    final praktikumButton = find.text('Praktikum 8 - Firebase Cloud Messaging');
+    await tester.scrollUntilVisible(
+      praktikumButton,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(praktikumButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Praktikum 8 - Firebase FCM'), findsOneWidget);
+    expect(find.text('Push Notification'), findsOneWidget);
+    expect(find.text('Aktifkan & Daftarkan FCM'), findsOneWidget);
   });
 }

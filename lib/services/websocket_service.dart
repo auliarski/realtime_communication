@@ -1,99 +1,85 @@
 
+import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class WebSocketService {
-  WebSocketChannel? _channel;
+  static const String url = 'ws://10.0.2.2:3000';
 
+  WebSocketChannel? _channel;
+  StreamSubscription<dynamic>? _subscription;
   bool _isConnected = false;
 
   bool get isConnected => _isConnected;
 
-  // Menentukan alamat server.
-  String get serverUrl {
-    if (kIsWeb) {
-      return 'ws://localhost:3000';
-    }
-
-    return 'ws://10.0.2.2:3000';
-  }
-
-  // Membuat koneksi WebSocket.
   Future<void> connect({
     required Function(Map<String, dynamic>) onData,
     required Function(String) onError,
     required Function() onConnected,
     required Function() onDisconnected,
   }) async {
-    if (_isConnected) return;
+    if (_channel != null) return;
+
+    final channel = IOWebSocketChannel.connect(
+      Uri.parse(url),
+      connectTimeout: const Duration(seconds: 10),
+    );
+    _channel = channel;
 
     try {
-      final channel = WebSocketChannel.connect(
-        Uri.parse(serverUrl),
-      );
-
-      _channel = channel;
-
       await channel.ready;
-
       _isConnected = true;
       onConnected();
 
-      channel.stream.listen(
-        (message) {
+      _subscription = channel.stream.listen(
+        (dynamic rawData) {
           try {
-            final decoded = jsonDecode(message.toString());
-
-            if (decoded is Map<String, dynamic>) {
-              onData(decoded);
+            final decoded = jsonDecode(rawData as String);
+            if (decoded is Map) {
+              onData(Map<String, dynamic>.from(decoded));
             }
-          } catch (e) {
-            onError('Gagal membaca pesan: $e');
+          } catch (error) {
+            onError('Data WebSocket tidak valid: $error');
           }
         },
-        onError: (error) {
+        onError: (Object error) {
           _isConnected = false;
           _channel = null;
-          onError('Koneksi WebSocket error: $error');
-          onDisconnected();
+          onError(error.toString());
         },
         onDone: () {
           _isConnected = false;
           _channel = null;
+          _subscription = null;
           onDisconnected();
         },
-        cancelOnError: true,
       );
-    } catch (e) {
+    } catch (error) {
       _isConnected = false;
       _channel = null;
-      onError('Gagal menghubungkan ke server: $e');
-      onDisconnected();
+      onError('Tidak dapat terhubung ke $url: $error');
+      await channel.sink.close();
     }
   }
 
-  // Mengirim pesan ke server.
   void sendMessage(String message) {
-    if (!_isConnected || _channel == null) {
-      throw Exception('WebSocket belum terhubung');
+    final channel = _channel;
+    if (!_isConnected || channel == null) {
+      throw StateError('WebSocket belum terhubung');
     }
 
-    _channel!.sink.add(
-      jsonEncode({
-        'message': message,
-      }),
-    );
+    channel.sink.add(jsonEncode({'message': message}));
   }
 
-  // Memutus koneksi.
   Future<void> disconnect() async {
-    _isConnected = false;
-
     final channel = _channel;
     _channel = null;
+    _isConnected = false;
 
+    await _subscription?.cancel();
+    _subscription = null;
     await channel?.sink.close();
   }
 }

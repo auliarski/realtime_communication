@@ -36,8 +36,14 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.6.0
   web_socket_channel: ^3.0.3
+  firebase_core: ^5.1.0
+  firebase_messaging: ^17.0.1
   mqtt_client: ^10.14.0
-  flutter_http_sse: ^1.0.5
+  grpc: ^5.2.0
+  protobuf: ^6.1.0
+  fixnum: ^1.1.1
+  flutter_local_notifications: 19.5.0
+  flutter_webrtc: ^1.6.3
 
 dev_dependencies:
   flutter_test:
